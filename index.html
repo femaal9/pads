@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pads">
+<meta name="theme-color" content="#111">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>Pads</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --panel: #1b1b1f;
+    --line: #2c2c33;
+    --text: #f2f2f4;
+    --muted: #8a8a95;
+    --stop: #e5383b;
+    --gap: 10px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px 6px;
+  }
+  header h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .btn {
+    appearance: none; border: 0; border-radius: 12px;
+    background: var(--panel); color: var(--text);
+    font: inherit; font-weight: 600;
+    padding: 9px 14px; touch-action: manipulation; cursor: pointer;
+  }
+  .btn.on { background: var(--text); color: var(--bg); }
+
+  /* la griglia riempie lo spazio tra titolo e STOP: 6 pad = 3 righe, niente scroll */
+  .grid {
+    flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 6px 16px 10px;
+    display: grid; gap: var(--gap);
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: minmax(80px, 1fr);
+  }
+  @media (min-width: 600px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+
+  .pad {
+    position: relative;
+    border-radius: 18px; overflow: hidden;
+    background: var(--c, #444);
+    display: flex; align-items: flex-end;
+    padding: 10px; touch-action: manipulation;
+    box-shadow: inset 0 -4px 0 rgba(0,0,0,.25);
+    transition: transform .06s ease, filter .06s ease;
+  }
+  .pad .name {
+    position: relative; z-index: 1;
+    font-weight: 800; font-size: 20px; line-height: 1.15;
+    text-shadow: 0 1px 2px rgba(0,0,0,.35);
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    word-break: break-word;
+  }
+  .pad.empty { background: transparent; border: 2px dashed var(--c, #444); box-shadow: none; }
+  .pad.empty .name { color: var(--muted); text-shadow: none; }
+  .pad.down { transform: scale(.95); filter: brightness(1.25); }
+  .pad .prog {
+    position: absolute; left: 0; bottom: 0; height: 100%; width: 100%;
+    background: rgba(255,255,255,.28);
+    transform-origin: left; transform: scaleX(0);
+  }
+  .pad.playing .prog { animation: prog var(--dur, 1s) linear forwards; }
+  @keyframes prog { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .pad .edit-dot {
+    position: absolute; top: 8px; right: 8px; z-index: 1;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(0,0,0,.35); display: none;
+    align-items: center; justify-content: center; font-size: 14px;
+  }
+  .editing .pad .edit-dot { display: flex; }
+  .editing .pad { animation: wiggle .3s ease-in-out infinite alternate; }
+  @keyframes wiggle { from { transform: rotate(-.6deg); } to { transform: rotate(.6deg); } }
+  #addBtn, #importBtn { display: none; }
+  .editing #addBtn, .editing #importBtn { display: inline-block; }
+
+  footer { padding: 6px 16px 12px; }
+  .stop {
+    width: 100%; height: 64px; border: 0; border-radius: 18px;
+    background: var(--stop); color: #fff;
+    font: inherit; font-size: 20px; font-weight: 900; letter-spacing: .08em;
+    touch-action: manipulation;
+  }
+  .stop.down { filter: brightness(1.25); transform: scale(.98); }
+
+  /* Editor */
+  .sheet-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: flex-end; justify-content: center; z-index: 10;
+  }
+  .sheet-bg.open { display: flex; }
+  .sheet {
+    width: 100%; max-width: 520px;
+    background: var(--panel); border-radius: 22px 22px 0 0;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 14px;
+    -webkit-user-select: text; user-select: text;
+  }
+  .sheet label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .sheet input[type=text] {
+    width: 100%; margin-top: 6px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px;
+    font: inherit; font-size: 17px; padding: 11px 12px;
+  }
+  .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 6px; }
+  .sw { aspect-ratio: 1 / 1; border-radius: 50%; border: 3px solid transparent; }
+  .sw.sel { border-color: var(--text); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row .grow { flex: 1; min-width: 0; color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn.danger { color: var(--stop); }
+  .btn.danger.arm { background: var(--stop); color: #fff; }
+  .btn.primary { background: var(--text); color: var(--bg); }
+  .spacer { flex: 1; }
+  .hidden-file { display: none; }
+  .toast {
+    position: fixed; left: 50%; bottom: calc(100px + env(safe-area-inset-bottom));
+    transform: translateX(-50%); background: #000; color: #fff;
+    padding: 10px 14px; border-radius: 12px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20;
+  }
+  .toast.show { opacity: .92; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pads</h1>
+  <div>
+    <button class="btn" id="importBtn">Importa</button>
+    <button class="btn" id="addBtn">+ Pad</button>
+    <button class="btn" id="editBtn">Modifica</button>
+  </div>
+</header>
+<main class="grid" id="grid"></main>
+<footer>
+  <button class="stop" id="stopBtn">STOP</button>
+</footer>
+
+<div class="sheet-bg" id="sheetBg">
+  <div class="sheet" id="sheet">
+    <div>
+      <label for="nameIn">Nome</label>
+      <input type="text" id="nameIn" maxlength="40" autocomplete="off">
+    </div>
+    <div>
+      <label>Colore</label>
+      <div class="swatches" id="swatches"></div>
+    </div>
+    <div>
+      <label>Sample</label>
+      <div class="row" style="margin-top:6px">
+        <span class="grow" id="fileName">Nessun audio</span>
+        <button class="btn" id="testBtn">▶︎ Prova</button>
+        <button class="btn" id="pickBtn">Scegli audio</button>
+      </div>
+      <input type="file" accept="audio/*,.mp3,.m4a,.wav,.aif,.aiff,.caf" class="hidden-file" id="fileIn">
+    </div>
+    <div class="row">
+      <button class="btn" id="leftBtn">←</button>
+      <button class="btn" id="rightBtn">→</button>
+      <span class="spacer"></span>
+      <button class="btn danger" id="delBtn">Elimina</button>
+      <button class="btn primary" id="doneBtn">Fatto</button>
+    </div>
+  </div>
+</div>
+<input type="file" accept="audio/*,.mp3,.m4a,.wav,.aif,.aiff,.caf" multiple class="hidden-file" id="multiIn">
+<div class="toast" id="toast"></div>
+
+<script>
+const COLORS = ['#e5383b','#f77f00','#fcbf49','#80b918','#2a9d8f','#00b4d8',
+                '#4361ee','#7b2cbf','#c9184a','#ff70a6','#8d6e63','#6c757d'];
+
+// ---------- IndexedDB ----------
+const DB_NAME = 'pads', STORE = 'pads';
+let db;
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(STORE, { keyPath: 'id' });
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function tx(mode, fn) {
+  return new Promise((res, rej) => {
+    const t = db.transaction(STORE, mode);
+    const out = fn(t.objectStore(STORE));
+    t.oncomplete = () => res(out && out.result);
+    t.onerror = () => rej(t.error);
+  });
+}
+const dbAll = () => tx('readonly', s => s.getAll());
+const dbPut = pad => tx('readwrite', s => s.put(pad));
+const dbDel = id => tx('readwrite', s => s.delete(id));
+
+// ---------- Audio ----------
+let ctx;
+const buffers = new Map();   // id -> AudioBuffer
+const voices = new Map();    // id -> AudioBufferSourceNode in riproduzione
+
+function ensureCtx() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    // iOS 17+: suona anche con l'interruttore silenzioso
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+  }
+  if (ctx.state !== 'running') ctx.resume();
+  return ctx;
+}
+// sblocco audio su iOS al primo tocco
+['touchend', 'click'].forEach(ev => document.addEventListener(ev, ensureCtx, { passive: true }));
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx) ctx.resume(); });
+
+async function decode(pad) {
+  if (!pad.audio) { buffers.delete(pad.id); return; }
+  ensureCtx();
+  try {
+    const buf = await ctx.decodeAudioData(pad.audio.slice(0));
+    buffers.set(pad.id, buf);
+  } catch (e) {
+    buffers.delete(pad.id);
+    toast(`"${pad.name}": formato audio non supportato`);
+  }
+}
+
+function play(id) {
+  const buf = buffers.get(id);
+  if (!buf) return;
+  ensureCtx();
+  stopVoice(id); // retrigger: riparte dall'inizio
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.onended = () => {
+    if (voices.get(id) === src) { voices.delete(id); setPlaying(id, false); }
+  };
+  voices.set(id, src);
+  src.start(0);
+  setPlaying(id, true, buf.duration);
+}
+function stopVoice(id) {
+  const v = voices.get(id);
+  if (v) { v.onended = null; try { v.stop(); } catch (e) {} voices.delete(id); }
+  setPlaying(id, false);
+}
+function stopAll() { [...voices.keys()].forEach(stopVoice); }
+
+function setPlaying(id, on, dur) {
+  const el = grid.querySelector(`[data-id="${id}"]`);
+  if (!el) return;
+  el.classList.remove('playing');
+  if (on) {
+    el.style.setProperty('--dur', dur + 's');
+    void el.offsetWidth; // riavvia l'animazione
+    el.classList.add('playing');
+  }
+}
+
+// ---------- Stato e UI ----------
+let pads = [];
+let editing = false;
+let current = null; // pad aperto nell'editor
+const grid = document.getElementById('grid');
+const $ = id => document.getElementById(id);
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function newPad(i) { return { id: uid(), name: `Pad ${i + 1}`, color: COLORS[i % COLORS.length], order: i, audio: null, fileName: '' }; }
+
+function render() {
+  grid.innerHTML = '';
+  pads.sort((a, b) => a.order - b.order).forEach(p => {
+    const el = document.createElement('div');
+    el.className = 'pad' + (p.audio ? '' : ' empty');
+    el.dataset.id = p.id;
+    el.style.setProperty('--c', p.color);
+    el.innerHTML = `<div class="prog"></div><span class="name"></span><span class="edit-dot">✎</span>`;
+    el.querySelector('.name').textContent = p.name || ' ';
+    if (voices.has(p.id)) el.classList.add('playing');
+    grid.appendChild(el);
+  });
+  document.body.classList.toggle('editing', editing);
+}
+
+// tocco sui pad: pointerdown per la latenza minima
+grid.addEventListener('pointerdown', e => {
+  const el = e.target.closest('.pad');
+  if (!el || editing) return;
+  el.classList.add('down');
+  play(el.dataset.id);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach(ev =>
+  grid.addEventListener(ev, e => { const el = e.target.closest('.pad'); if (el) el.classList.remove('down'); }));
+grid.addEventListener('click', e => {
+  if (!editing) return;
+  const el = e.target.closest('.pad');
+  if (el) openEditor(pads.find(p => p.id === el.dataset.id));
+});
+$('addBtn').addEventListener('click', async () => {
+  const p = newPad(pads.length);
+  p.order = pads.length ? Math.max(...pads.map(x => x.order)) + 1 : 0;
+  pads.push(p); await dbPut(p); render(); openEditor(p);
+});
+
+$('editBtn').addEventListener('click', () => {
+  editing = !editing;
+  if (editing) stopAll();
+  $('editBtn').textContent = editing ? 'Fine' : 'Modifica';
+  $('editBtn').classList.toggle('on', editing);
+  render();
+});
+
+const stopBtn = $('stopBtn');
+stopBtn.addEventListener('pointerdown', () => { stopBtn.classList.add('down'); stopAll(); });
+['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => stopBtn.addEventListener(ev, () => stopBtn.classList.remove('down')));
+
+// ---------- Editor ----------
+const sheetBg = $('sheetBg');
+COLORS.forEach(c => {
+  const s = document.createElement('div');
+  s.className = 'sw'; s.style.background = c; s.dataset.c = c;
+  $('swatches').appendChild(s);
+});
+
+function openEditor(p) {
+  current = p;
+  $('nameIn').value = p.name;
+  $('fileName').textContent = p.fileName || 'Nessun audio';
+  $('testBtn').disabled = !p.audio;
+  disarmDelete();
+  markSwatch();
+  sheetBg.classList.add('open');
+}
+function closeEditor() {
+  stopAll();
+  sheetBg.classList.remove('open');
+  current = null;
+  render();
+}
+function markSwatch() {
+  [...$('swatches').children].forEach(s => s.classList.toggle('sel', current && s.dataset.c === current.color));
+}
+async function save() { if (current) await dbPut(current); }
+
+$('nameIn').addEventListener('input', e => { current.name = e.target.value; save(); });
+$('swatches').addEventListener('click', e => {
+  const s = e.target.closest('.sw'); if (!s) return;
+  current.color = s.dataset.c; markSwatch(); save();
+});
+$('pickBtn').addEventListener('click', () => { ensureCtx(); $('fileIn').click(); });
+$('fileIn').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f || !current) return;
+  const p = current;
+  p.audio = await f.arrayBuffer();
+  p.fileName = f.name;
+  // se il nome è ancora quello di default usa il nome del file
+  if (/^Pad \d+$/.test(p.name)) { p.name = f.name.replace(/\.[^.]+$/, ''); $('nameIn').value = p.name; }
+  await decode(p);
+  if (!buffers.has(p.id)) { p.audio = null; p.fileName = ''; }
+  await dbPut(p);
+  $('fileName').textContent = p.fileName || 'Nessun audio';
+  $('testBtn').disabled = !p.audio;
+  if (p.audio) play(p.id);
+});
+// Importa: più file insieme, riempiono i pad in ordine di nome (1, 2, 3...)
+const cleanName = n => n.replace(/\.[^.]+$/, '').replace(/^\d+\s*[-_.)]?\s*/, '') || n;
+$('importBtn').addEventListener('click', () => { ensureCtx(); $('multiIn').click(); });
+$('multiIn').addEventListener('change', async e => {
+  const files = [...e.target.files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  e.target.value = '';
+  if (!files.length) return;
+  stopAll();
+  const sorted = pads.slice().sort((a, b) => a.order - b.order);
+  let ok = 0;
+  for (let i = 0; i < files.length; i++) {
+    let p = sorted[i];
+    if (!p) {
+      p = newPad(i);
+      p.order = Math.max(-1, ...pads.map(x => x.order)) + 1;
+      pads.push(p); sorted.push(p);
+    }
+    p.audio = await files[i].arrayBuffer();
+    p.fileName = files[i].name;
+    p.name = cleanName(files[i].name);
+    await decode(p);
+    if (buffers.has(p.id)) ok++; else { p.audio = null; p.fileName = ''; }
+    await dbPut(p);
+  }
+  render();
+  toast(`${ok} sample caricati`);
+});
+$('testBtn').addEventListener('click', () => current && play(current.id));
+
+async function move(dir) {
+  const sorted = pads.slice().sort((a, b) => a.order - b.order);
+  const i = sorted.indexOf(current), j = i + dir;
+  if (j < 0 || j >= sorted.length) return;
+  [sorted[i].order, sorted[j].order] = [sorted[j].order, sorted[i].order];
+  await dbPut(sorted[i]); await dbPut(sorted[j]);
+  render();
+}
+$('leftBtn').addEventListener('click', () => move(-1));
+$('rightBtn').addEventListener('click', () => move(1));
+
+// elimina con doppio tocco (niente popup di sistema)
+let delTimer;
+function disarmDelete() { clearTimeout(delTimer); $('delBtn').classList.remove('arm'); $('delBtn').textContent = 'Elimina'; }
+$('delBtn').addEventListener('click', async () => {
+  const b = $('delBtn');
+  if (!b.classList.contains('arm')) {
+    b.classList.add('arm'); b.textContent = 'Sicuro?';
+    delTimer = setTimeout(disarmDelete, 2500);
+    return;
+  }
+  const id = current.id;
+  stopVoice(id);
+  pads = pads.filter(p => p.id !== id);
+  buffers.delete(id);
+  await dbDel(id);
+  closeEditor();
+});
+$('doneBtn').addEventListener('click', closeEditor);
+sheetBg.addEventListener('click', e => { if (e.target === sheetBg) closeEditor(); });
+
+let toastTimer;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ---------- Avvio ----------
+(async () => {
+  db = await openDB();
+  pads = await dbAll();
+  if (!pads.length) {
+    pads = Array.from({ length: 6 }, (_, i) => newPad(i));
+    for (const p of pads) await dbPut(p);
+  }
+  render();
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+  for (const p of pads) if (p.audio) await decode(p);
+})();
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
